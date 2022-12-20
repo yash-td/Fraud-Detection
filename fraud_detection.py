@@ -6,6 +6,8 @@ Name:- Yash Tusharbhai Desai
 """
 
 # importing necessary libraries
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 from utils import *
 import numpy as np
 import pandas as pd
@@ -25,10 +27,10 @@ data_features = pd.read_csv('transactions_obf.csv')
 data_labels = pd.read_csv('labels_obf.csv')
 fraud_transactions = data_labels['eventId'].tolist()
 print('-->Loading our data...')
-
+print('')
 # creating the target variable "isFraud"
-data_features.loc[data_features['eventId'].isin(fraud_transactions) , 'isFraud'] = 1
-data_features.loc[data_features['eventId'].isin(fraud_transactions) == False , 'isFraud'] = 0
+data_features.loc[data_features['eventId'].isin(fraud_transactions) , 'isFraud'] = int(1)
+data_features.loc[data_features['eventId'].isin(fraud_transactions) == False , 'isFraud'] = int(0)
 counts = data_features['isFraud'].value_counts()
 print(f'Out of the total {len(data_features)} transactions, {dict(counts).get(0)} are genuine and {dict(counts).get(1)} are fraud.')
 
@@ -64,6 +66,7 @@ This can be a great feature as the model can spot patterns to identify suspiciou
 """
 
 data_features['transactionTime'] = pd.to_datetime(data_features['transactionTime'])
+data_features['transactionMonth'] = data_features['transactionTime'].apply(get_month)
 data_features['transactionTime'] = data_features['transactionTime'].apply(get_pod)
 data_features = create_dummies(data_features,data_features['transactionTime'],'time')
 
@@ -167,7 +170,7 @@ neg_indexes = data_features[ data_features['transactionAmount'] < 0 ].index
 data_features.drop(neg_indexes , inplace=True)
 print('')
 print('-->Removing negative transactions from transactionAmount...')
-data_features['transactionAmount'] = mm.fit_transform(data_features[['transactionAmount']])
+# data_features['transactionAmount'] = mm.fit_transform(data_features[['transactionAmount']])
 
 
 # 10) availableCash
@@ -178,7 +181,7 @@ values as they are heavily skewed. I do this using log transformation like I did
 to deal with the 0 values as dividing by zero will give us inf.
 
 """
-data_features['availableCash'] = mm.fit_transform(data_features[['availableCash']])
+# data_features['availableCash'] = mm.fit_transform(data_features[['availableCash']])
 
 
 data_features.to_csv('processed_df.csv')
@@ -188,14 +191,11 @@ print('-->Completed Pre-processing and feature engineering...')
 """
 With only 0.74% transactions that are fraudulent, a classifier that predicts every transaction to be not fraudulent will achieve accuracy score of 99.26%. However, such a classifier cannot be used in . Therefore, in the cases when classes are imbalanced, metrics other than accuracy should be considered. These metrics include precision, recall and a combination of these two metrics (F2).
 
-The penalty for mislabeling a fraud transaction as legitimate is having a user’s money stolen, which the credit card company
-typically reimburses. On the other hand, the penalty for mislabeling a legitimate transaction as fraud is having the user frozen out of their finances and unable to make payments. Balancing the data keeping in mind that we need to catch most of the fraudulent transactions and have the least number of false positives.
-
-
 """
 
 # Splitting the data into train, test and validation
-
+print('')
+print('-->Creating Training, Testing and Validation sets...')
 X_train,X_test,X_val,y_train,y_test,y_val = prepare_data(data_features)
 
 # Balancing the train data
@@ -206,7 +206,10 @@ the train_test split before balancing the data because only the training data is
 The test data is the real world data which is never going to be balanced. The model optimisation is performed on the 
 validation data hence it needs to see real-world like data as well. 
 
-I reached to a conclusion that false positives should be minimum and recall at the same time should be good as well. Hence I did not oversample with 1:1 ratio. More the synthetic samples the model sees, more the recall but also the chance of getting false positives increases a lot which would decrease precision.
+The penalty for mislabeling a fraud transaction as legitimate is having a user’s money stolen, which the credit card company
+typically reimburses. On the other hand, the penalty for mislabeling a legitimate transaction as fraud is having the user frozen out of their finances and unable to make payments. Balancing the data keeping in mind that we need to catch most of the fraudulent transactions (Aiming for maximum recall).
+
+Reviewing the bank's request that after working these alerts, as much fraud value as possible needs to be prevented, I prioritise recall over precision and care less about the false positives. Hence I oversample with 1:1 ratio. More the synthetic samples the model sees, more the recall but also the chance of getting false positives increases a lot which would decrease precision.
 
 '''
 
@@ -214,11 +217,18 @@ maj_class, min_class = class_dist(X_train,y_train,'isFraud')
 
 X_train_sm, y_train_sm = upsample_SMOTE(X_train,y_train,'is_Fraud',0.5)
 
-# fitting a random forest classifier on balanced dataset
+print('-'*70)
+f1, f1_b = base_models(X_train,X_train_sm,X_test,y_train,y_train_sm,y_test)
+print('-'*70)
+print(best_metrics(f1,'precision_score','unbalanced'))
+print(best_metrics(f1_b,'precision_score','balanced'))
+print('-'*70)
+print(best_metrics(f1,'recall_score','unbalanced'))
+print(best_metrics(f1_b,'recall_score','balanced'))
+print('-'*70)
+print(best_metrics(f1,'f1_score','unbalanced'))
+print(best_metrics(f1_b,'f1_score','balanced'))
+print('-'*70)
 
-rfc = RandomForestClassifier(random_state=42,criterion='entropy')
-rfc.fit(X_train_sm,y_train_sm)
-y_pred = rfc.predict(X_test)
-print(classification_report(y_test,y_pred,target_names=['notFraud','Fraud']))
-print('Confusion Matrix:')
-print(confusion_matrix(y_test,y_pred))
+# using cross validation
+

@@ -3,7 +3,14 @@ import pandas as pd
 from imblearn.over_sampling import SMOTE
 from datetime import datetime
 from sklearn.model_selection import train_test_split
-
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report,confusion_matrix
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import IsolationForest
 
 # helper functions
 
@@ -25,6 +32,12 @@ def get_pod(x):
         return'Night'
     elif (x.hour <= 4):
         return'Late Night'
+
+'''
+get_month() takes one argument 'x' which is the column transactionTime and simply return the month from the datatime data type.
+'''
+def get_month(x):
+    return x.month
 
 '''
 class_dist() takes 3 arguments -> X,y and target_var. Here X are the features, y is the label and target_var is the name
@@ -99,6 +112,47 @@ def prepare_data(data):
     X = data.drop(columns=['isFraud'])
     y = data['isFraud']
     X_train, X_rest, y_train, y_rest  = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.75, random_state=42, stratify=y_rest)
+    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.5, random_state=42, stratify=y_rest)
 
     return X_train,X_test,X_val,y_train,y_test,y_val
+
+'''
+base_models() takes 6 arguments. It takes the training features and labels ()
+'''
+
+def base_models(X_train,X_train_sm,X_test,y_train,y_train_sm,y_test):
+
+    models = {'LogisticRegression': LogisticRegression(),
+    'DecisionTree':DecisionTreeClassifier(),
+    'RandomForest':RandomForestClassifier(),
+    'XGBoost':XGBClassifier(),
+    'ADABoost': AdaBoostClassifier()
+    }
+
+    f1 = []
+    f1_b = []
+
+    for x,y in models.items():
+        unb_model = y.fit(X_train,y_train)
+        preds_wob = unb_model.predict(X_test)
+        f1.append([x,precision_score(y_test,preds_wob),recall_score(y_test,preds_wob),f1_score(y_test,preds_wob)])
+
+    for u,v in models.items():
+        b_model = v.fit(X_train_sm,y_train_sm)
+        preds_b = b_model.predict(X_test)
+        f1_b.append([u,precision_score(y_test,preds_b),recall_score(y_test,preds_b),f1_score(y_test,preds_b)])
+
+    print('Before Balancing')
+    f1 = pd.DataFrame(f1,columns=['models','precision_score','recall_score','f1_score'])
+    print(f1)
+    print('-'*70)
+    print('After Balancing')
+    f1_b = pd.DataFrame(f1_b,columns=['models','precision_score','recall_score','f1_score'])
+    print(f1_b)
+
+    return f1,f1_b
+    
+def best_metrics(data,metric,type):
+    max_m = max(data[metric])
+    res = f"The model with the best {metric} {max_m} in {type} dataset is {data['models'][data[metric].idxmax()]}"
+    return res
