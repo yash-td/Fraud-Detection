@@ -6,16 +6,20 @@ Name:- Yash Desai
 """
 
 # importing necessary libraries
-
+from utils import *
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from dataprep.eda import *
 import seaborn as sns
 from datetime import datetime
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import SMOTE
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report,confusion_matrix
 
 # loading the dataset
-
 desc = pd.read_excel('data-dictionary.xlsx', index_col=0)
 data_features = pd.read_csv('transactions_obf.csv')
 data_labels = pd.read_csv('labels_obf.csv')
@@ -23,7 +27,6 @@ fraud_transactions = data_labels['eventId'].tolist()
 print('-->Loading our data...')
 
 # creating the target variable "isFraud"
-
 data_features.loc[data_features['eventId'].isin(fraud_transactions) , 'isFraud'] = 1
 data_features.loc[data_features['eventId'].isin(fraud_transactions) == False , 'isFraud'] = 0
 counts = data_features['isFraud'].value_counts()
@@ -44,27 +47,12 @@ Preparing the data for making it suitable to fit the model:-
 
 """ 
 
-# helper functions
-
-def get_pod(x):
-    if (x.hour > 4) and (x.hour <= 8):
-        return 'Early Morning'
-    elif (x.hour > 8) and (x.hour <= 12 ):
-        return 'Morning'
-    elif (x.hour > 12) and (x.hour <= 16):
-        return'Noon'
-    elif (x.hour > 16) and (x.hour <= 20) :
-        return 'Eve'
-    elif (x.hour > 20) and (x.hour <= 24):
-        return'Night'
-    elif (x.hour <= 4):
-        return'Late Night'
-
 
 # data cleaning, data pre-processing and feature engineering
 # performing each of the above feature by feature to have a better understanding of the featrues
 
-# transactionTime
+
+# 1) transactionTime
 
 """
 
@@ -76,14 +64,13 @@ This can be a great feature as the model can spot patterns to identify suspiciou
 """
 
 data_features['transactionTime'] = pd.to_datetime(data_features['transactionTime'])
-data_features['part_of_day'] = data_features['transactionTime'].apply(get_pod)
-pod_dummies = pd.get_dummies(data_features['part_of_day'],prefix = 'tx_at')
-data_features = pd.concat([data_features,pod_dummies],axis=1)
-data_features = data_features.drop(columns=['transactionTime','part_of_day'])
+data_features['transactionTime'] = data_features['transactionTime'].apply(get_pod)
+data_features = create_dummies(data_features,data_features['transactionTime'],'time')
 
-print('-->Creating a new feature called part_of_day from transactionTime to signify the part of Day...')
 
-# eventId
+print('-->Creating a new feature from transactionTime which signifies the part of Day (morning, early morning, late night etc)...')
+
+# 2) eventId
 
 """
 Similar to transaction time 'eventId' has a very high cardinality as well with 100% unique values
@@ -95,21 +82,18 @@ data_features = data_features.drop(columns=['eventId'])
 print('')
 print('-->Dropping eventId...')
 
-# accountNumber
+# 3) accountNumber
 
 """
-Account Number has just 766 unique values which is 0.6% of the total values. Account number as it is can't be a great predictor as it is just an id and does not provide any information. But instead the frequency of the account numbers can be calculated and used as a feature. The number of transactions by the same account is definitely a great predictor for fraud detection systems. High number of transactions from the same account can signal towards a probable fraud.
+Account Number has just 766 unique values which is 0.6% of the total values. Account number as it is can't be a great predictor as it is just an id and does not provide any information. But instead the frequency of the account numbers can be calculated and used as a feature. The number of transactions by the same account is definitely a great predictor for fraud detection systems. High number of transactions from the same account can signal towards a probable fraud. Finally I standardise the highly skewed values using min max normalisation. By this the values in this column will follow a normal distribution with a mean of 0 and standard deviation of 1.
 """ 
-
-acc_freq = data_features.accountNumber.value_counts()
-acc_freq = pd.DataFrame(acc_freq)
-acc_freq["name"] = acc_freq.index
-acc_freq.rename(columns = {'accountNumber':'acc_freq', 'name':'accountNumber'}, inplace = True)
-data_features = data_features.merge(acc_freq, on = 'accountNumber')
-data_features = data_features.drop(columns=['accountNumber'])
 print('')
 print('-->Computing frequency of account numbers instead of the ids...')
-# merchantId
+mm = StandardScaler()
+data_features = get_frequency(data_features,data_features.accountNumber,'acc_freq')
+data_features['acc_freq'] = mm.fit_transform(data_features[['acc_freq']])
+
+# 4) merchantId
 
 """
 
@@ -121,27 +105,24 @@ data_features = data_features.drop(columns=['merchantId'])
 print('')
 print('-->Dropping merchantId...')
 
-# mcc
+# 5) mcc
 
 """
 
-MCC represents the merchant category code of the merchant. It specifies the type of goods or services the merchant provides. It has a high cardinality as well and hence we use the frequency of MCC instead of the MCC codes. The frequency will represent the number of times a specific type of service or goods category appeared. 
+MCC represents the merchant category code of the merchant. It specifies the type of goods or services the merchant provides. It has a high cardinality as well and hence we use the frequency of MCC instead of the MCC codes. The frequency will represent the number of times a specific type of service or goods category appeared. I perform min max normnalisatio finally to normalise the values.
 
 """
-mcc_freq = data_features.mcc.value_counts()
-mcc_freq = pd.DataFrame(mcc_freq)
-mcc_freq["mcc_code"] = mcc_freq.index
-mcc_freq.rename(columns = {'mcc':'mcc_freq', 'mcc_code':'mcc'}, inplace = True)
-data_features = data_features.merge(mcc_freq, on = 'mcc')
-data_features = data_features.drop(columns=['mcc'])
+data_features = get_frequency(data_features,data_features['mcc'],'mcc_freq')
 print('')
 print('-->Considering the frequency of merchant category code instead of the id...')
+data_features['mcc_freq'] = mm.fit_transform(data_features[['mcc_freq']])
 
-# merchantCountry
+
+# 6) merchantCountry
 
 """
 It is the country of the merchant who charged for the transaction. It is a categorical variable with 82 different codes for
-diffrent countries. If we were to use a one hot encoding technique to convert the categorical variable to numeric, we would end up adding 82 columns to our feature set which increases the cardinality. This would increase the memory consumption as well as increase the risk of "curse of dimesnioanlity" which says that:-
+diffrent countries. If we were to use a one hot encoding technique directly to convert the categorical variable to numeric, we would end up adding 82 columns to our feature set which increases the cardinality. This would increase the memory consumption as well as increase the risk of "curse of dimesnioanlity" which says that:-
 
 " as the number of features grows, the amount of data we need to accurately be able to distinguish between these features (in order to give us a prediction) and generalize our model grows EXPONENTIALLY "
 
@@ -152,14 +133,11 @@ merchant_country_freq = pd.DataFrame(data_features.merchantCountry.value_counts(
 merchant_country_freq["mc"] = merchant_country_freq.index
 country_list = merchant_country_freq.loc[merchant_country_freq.merchantCountry>100,"mc"] # extracting countires whose transaction frequency is more than 100
 data_features.loc[data_features["merchantCountry"].isin(country_list)==False,"merchantCountry"]="low_freq_countires" # marking rest countries as "low_freq_countries"
-
-mc_dummies = pd.get_dummies(data_features['merchantCountry'],prefix = 'mc')
-data_features = pd.concat([data_features,mc_dummies],axis=1)
-data_features = data_features.drop(columns=['merchantCountry'])
+data_features = create_dummies(data_features,data_features['merchantCountry'],'mc')
 print('')
 print('-->Separating low frequency countries and creating dummy variables...')
 
-# merchantZip
+# 7) merchantZip
 
 '''
 
@@ -172,37 +150,77 @@ print('-->Dropping merchantZip...')
 data_features = data_features.drop(columns=['merchantZip'])
 
 
-# posEntryMode
+# 8) posEntryMode
 
 '''
 It represents the point of sale entry mode and there are just 10 distinct values hence I have used a one hot encoder. This can be done using the get_dummies function from pandas.
 '''
 
-pos_dummies = pd.get_dummies(data_features['posEntryMode'],prefix='pos_mode')
-data_features = pd.concat([data_features,pos_dummies],axis=1)
-data_features = data_features.drop(columns=['posEntryMode'])
+data_features = create_dummies(data_features,data_features['posEntryMode'],'pos_mode')
 print('')
 print('-->Creating dummy variables for posEntryMode...')
 
-# transactionAmount
+# 9) transactionAmount
 
 """
-This column contains a certain number of negative values which are not veyr high in magnitude. The minimum tranasction amount is "-0.15". We can either reomove these 183 values or make them zero. It wont make a huge difference if I perform any of these two methods but leaving the negative values as it is can degrade the performance of our classifier. I chose to remove the observations as -ve transaction values don't make sense and making them zero without any strong reason would not make any sense as well. As far as the skewness of this feature is concerned, I do not plan to use a parametric model 
-hence transforming the values according to a specific distribution won't make sense. 
-
+This column contains a certain number of negative values which are not veyr high in magnitude. The minimum tranasction amount is "-0.15". We can either reomove these 183 values or make them zero. I chose to remove the observations as -ve transaction values don't make sense and making them zero without any strong reason would not make any sense as well. As far as the skewness of this feature is concerned, I perform log transformation to normalise the values of this column. I have added 0.01 to deal with the 0 values as dividing by zero will give us infinity which will throw an error while modelling.
 """
 
 neg_indexes = data_features[ data_features['transactionAmount'] < 0 ].index
 data_features.drop(neg_indexes , inplace=True)
 print('')
 print('-->Removing negative transactions from transactionAmount...')
-# availableCash
+data_features['transactionAmount'] = mm.fit_transform(data_features[['transactionAmount']])
+
+# 10) availableCash
 
 """
-# This column seems to be perfectly fine and can be used in our prediction models as it is. 
+This column seems to be perfectly fine and can be used in our prediction models as it is. We just need to normalise the 
+values as they are heavily skewed. I do this using log transformation like I did for transactionAmount. I have added 0.01
+to deal with the 0 values as dividing by zero will give us inf.
 
 """
+data_features['availableCash'] = mm.fit_transform(data_features[['availableCash']])
+
 
 data_features.to_csv('processed_df.csv')
 print('')
 print('-->Completed Pre-processing and feature engineering...')
+
+"""
+With only 0.74% transactions that are fraudulent, a classifier that predicts every transaction to be not fraudulent will achieve accuracy score of 99.26%. However, such a classifier cannot be used in . Therefore, in the cases when classes are imbalanced, metrics other than accuracy should be considered. These metrics include precision, recall and a combination of these two metrics (F2).
+
+The penalty for mislabeling a fraud transaction as legitimate is having a user’s money stolen, which the credit card company
+typically reimburses. On the other hand, the penalty for mislabeling a legitimate transaction as fraud is having the user frozen out of their finances and unable to make payments. Balancing the data keeping in mind that we need to catch most of the fraudulent transactions and have the least number of false positives.
+
+
+"""
+
+# Splitting the data into train, test and validation
+
+X_train,X_test,X_val,y_train,y_test,y_val = prepare_data(data_features)
+
+# Balancing the train data
+
+'''
+The target variable "isFraud" is highly imbalanced. In such case the classifier will favour the majority classs start generating false predictions. Hence we upsample the minority class using synthetic monetory upsampling technique. I performed
+the train_test split before balancing the data because only the training data is supposed to be balanced.
+The test data is the real world data which is never going to be balanced. The model optimisation is performed on the 
+validation data hence it needs to see real-world like data as well. 
+
+I reached to a conclusion that false positives should be minimum and recall at the same time should be good as well. Hence I did not oversample with 1:1 ratio. More the synthetic samples the model sees, more the recall but also the chance of getting false positives increases a lot which would decrease precision.
+
+'''
+
+maj_class, min_class = class_dist(X_train,y_train,'isFraud')
+
+X_train_sm, y_train_sm = upsample_SMOTE(X_train,y_train,'is_Fraud',0.5)
+
+# fitting a random forest classifier on balanced dataset
+
+rfc = RandomForestClassifier(random_state=42,criterion='entropy')
+rfc.fit(X_train_sm,y_train_sm)
+y_pred = rfc.predict(X_test)
+print(classification_report(y_test,y_pred,target_names=['notFraud','Fraud']))
+print('Confusion Matrix:')
+print(confusion_matrix(y_test,y_pred))
