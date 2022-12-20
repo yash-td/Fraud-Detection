@@ -1,7 +1,7 @@
 """
 Feature Space Fraud Detection Data Science Challenge
 
-Name:- Yash Desai
+Name:- Yash Tusharbhai Desai
 
 """
 
@@ -91,7 +91,6 @@ print('')
 print('-->Computing frequency of account numbers instead of the ids...')
 mm = StandardScaler()
 data_features = get_frequency(data_features,data_features.accountNumber,'acc_freq')
-data_features['acc_freq'] = mm.fit_transform(data_features[['acc_freq']])
 
 # 4) merchantId
 
@@ -114,9 +113,7 @@ MCC represents the merchant category code of the merchant. It specifies the type
 """
 data_features = get_frequency(data_features,data_features['mcc'],'mcc_freq')
 print('')
-print('-->Considering the frequency of merchant category code instead of the id...')
-data_features['mcc_freq'] = mm.fit_transform(data_features[['mcc_freq']])
-
+print('-->Considering the frequency of merchant category code instead of the id...') 
 
 # 6) merchantCountry
 
@@ -163,7 +160,7 @@ print('-->Creating dummy variables for posEntryMode...')
 # 9) transactionAmount
 
 """
-This column contains a certain number of negative values which are not veyr high in magnitude. The minimum tranasction amount is "-0.15". We can either reomove these 183 values or make them zero. I chose to remove the observations as -ve transaction values don't make sense and making them zero without any strong reason would not make any sense as well. As far as the skewness of this feature is concerned, I perform log transformation to normalise the values of this column. I have added 0.01 to deal with the 0 values as dividing by zero will give us infinity which will throw an error while modelling.
+This column contains a certain number of negative values which are not veyr high in magnitude. The minimum tranasction amount is "-0.15". We can either reomove these 183 values or make them zero. I chose to remove the observations as -ve transaction values don't make sense and making them zero without any strong reason would not make any sense as well. As far as the skewness of this feature is concerned, I perform min max normalisation to normalise the values of this column.
 """
 
 neg_indexes = data_features[ data_features['transactionAmount'] < 0 ].index
@@ -171,6 +168,7 @@ data_features.drop(neg_indexes , inplace=True)
 print('')
 print('-->Removing negative transactions from transactionAmount...')
 data_features['transactionAmount'] = mm.fit_transform(data_features[['transactionAmount']])
+
 
 # 10) availableCash
 
