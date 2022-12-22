@@ -8,9 +8,14 @@ from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.metrics import classification_report,confusion_matrix
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, average_precision_score, precision_recall_curve
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble import IsolationForest
+from numpy import argmax
+import matplotlib.pyplot as plt
+from imblearn.pipeline import Pipeline as imbpipeline
+from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from tqdm import tqdm
 
 # helper functions
 
@@ -104,23 +109,22 @@ def create_dummies(data,column,prefix):
     return data
 
 '''
-prepare_data() takes only one argumrnt which is data. It is used to create training, testing and validation sets for our prediction
-models. While using the train_test_split(), I have specified stratify=y for both the splits. This means that my test and validation
-sets will have class distribution (majority:minority).
+prepare_data() takes only one argumrnt which is data. It is used to create training,= and testing sets for our prediction
+models. While using the train_test_split(), I have specified stratify=y. This means that my test set will have same class distribution
+as my train set (majority:minority).
 '''
 def prepare_data(data):
     X = data.drop(columns=['isFraud'])
     y = data['isFraud']
-    X_train, X_rest, y_train, y_rest  = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-    X_val, X_test, y_val, y_test = train_test_split(X_rest, y_rest, test_size=0.5, random_state=42, stratify=y_rest)
-
-    return X_train,X_test,X_val,y_train,y_test,y_val
+    X_train, X_test, y_train, y_test  = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    return X_train,X_test,y_train,y_test
 
 '''
-base_models() takes 6 arguments. It takes the training features and labels ()
+base_models() takes 4 arguments. It takes the balanced training features and labels and also the teseting features and labels. It trains 5 base models and returns their precision,recall and f1-score.
+
 '''
 
-def base_models(X_train,X_train_sm,X_test,y_train,y_train_sm,y_test):
+def base_models(X_train_sm,y_train_sm,X_test,y_test):
 
     models = {'LogisticRegression': LogisticRegression(),
     'DecisionTree':DecisionTreeClassifier(),
@@ -130,29 +134,73 @@ def base_models(X_train,X_train_sm,X_test,y_train,y_train_sm,y_test):
     }
 
     f1 = []
-    f1_b = []
-
-    for x,y in models.items():
-        unb_model = y.fit(X_train,y_train)
-        preds_wob = unb_model.predict(X_test)
-        f1.append([x,precision_score(y_test,preds_wob),recall_score(y_test,preds_wob),f1_score(y_test,preds_wob)])
-
+    fitted_models = []
     for u,v in models.items():
         b_model = v.fit(X_train_sm,y_train_sm)
         preds_b = b_model.predict(X_test)
-        f1_b.append([u,precision_score(y_test,preds_b),recall_score(y_test,preds_b),f1_score(y_test,preds_b)])
-
-    print('Before Balancing')
-    f1 = pd.DataFrame(f1,columns=['models','precision_score','recall_score','f1_score'])
-    print(f1)
+        f1.append([u,precision_score(y_test,preds_b),recall_score(y_test,preds_b),f1_score(y_test,preds_b), average_precision_score(y_test,preds_b)])
+        fitted_models.append(b_model)
     print('-'*70)
-    print('After Balancing')
-    f1_b = pd.DataFrame(f1_b,columns=['models','precision_score','recall_score','f1_score'])
-    print(f1_b)
+    print('Model Scores...')
+    f1 = pd.DataFrame(f1,columns=['models','precision_score','recall_score','f1_score','pr_auc'])
+    print(f1)
 
-    return f1,f1_b
+    return f1, fitted_models
     
 def best_metrics(data,metric,type):
     max_m = max(data[metric])
     res = f"The model with the best {metric} {max_m} in {type} dataset is {data['models'][data[metric].idxmax()]}"
     return res
+
+def best_f1_pr_auc(x,name,X_test,y_test):
+    yhat = x.predict_proba(X_test)
+    yhat = yhat[:, 1]
+    precision, recall, thresholds = precision_recall_curve(y_test, yhat)
+    fscore = (2 * precision * recall) / (precision + recall)
+    ix = argmax(fscore)
+    print(f'Best Threshold = {thresholds[ix]} and best F-Score {round(fscore[ix],3)} achieved for {name}')
+    no_skill = len(y_test[y_test==1]) / len(y_test)
+    plt.plot([0,1], [no_skill,no_skill], linestyle='--', label=f'Baseline score {round(no_skill,3)}')
+    plt.plot(recall, precision, marker='.', label=name)
+    plt.scatter(recall[ix], precision[ix], marker='o', color='black', label='Best')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.legend()
+    plt.savefig('figs/pr_auc.png')
+    return thresholds[ix], fscore[ix]
+
+def fit_model(model,X_train,y_train,X_test,y_test):
+    model.fit(X_train,y_train)
+    pred = model.predict(X_test)
+    print(classification_report(y_test,pred))
+    print(confusion_matrix(y_test,pred))
+    return model,pred
+
+def fine_tune_model(model,X_train,y_train,X_test,y_test,param_grid,metric):
+
+
+    model =  imbpipeline(steps = [['smote', SMOTE()],['xgb', model]])
+
+    # Choose the grid of hyperparameters we want to use for Grid Search to build our candidate models
+
+    stratified_kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    # Create a grid search object which will store the scores and hyperparameters of all candidate models 
+    param_grid = RandomizedSearchCV(
+        model, 
+        param_grid,
+        scoring=metric,
+        cv=stratified_kfold, verbose=10)
+
+    # Fit the models specified by the parameter grid 
+    tqdm(param_grid.fit(X_train, y_train))
+
+    # get the best hyperparameters from grid search object with its best_params_ attribute
+    print('Best parameters found:\n', param_grid.best_params_)
+
+    print(param_grid.best_score_)
+    rfc_grid_predict = param_grid.predict(X_test)
+    print(confusion_matrix(y_test,rfc_grid_predict))
+    print(classification_report(y_test,rfc_grid_predict))
+
+    return param_grid
