@@ -14,7 +14,7 @@ from numpy import argmax
 import matplotlib.pyplot as plt
 from imblearn.pipeline import Pipeline as imbpipeline
 from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from tqdm import tqdm
 
 # helper functions
@@ -56,8 +56,11 @@ def class_dist(X, y, target_var):
     majority_class = resampling[resampling[target_var]==0]
     minority_class = resampling[resampling[target_var]==1]
     # Get a class count to understand the class imbalance.
+    print('')
     print('majority_class before sampling: '+ str(len(majority_class)))
+    print('')
     print('minority_class before sampling: '+ str(len(minority_class)))
+    print('')
     return majority_class, minority_class
 
 '''
@@ -78,6 +81,7 @@ def upsample_SMOTE(X, y, target_var, ratio):
     majority_class = resampling[resampling[target_var]==0]
     minority_class = resampling[resampling[target_var]==1]
     print('majority_class after sampling: '+ str(len(majority_class)))
+    print('')
     print('minority_class after sampling: '+ str(len(minority_class)))
 
     return X_sm, y_sm
@@ -146,10 +150,15 @@ def base_models(X_train_sm,y_train_sm,X_test,y_test):
     print(f1)
 
     return f1, fitted_models
-    
-def best_metrics(data,metric,type):
+
+
+'''
+best_metrics() takes 2 arguments: data and metric. It extracts the best model according to the metric passed. The data here is the dataframe of the results of 5
+base models that are fitted. 
+'''   
+def best_metrics(data,metric):
     max_m = max(data[metric])
-    res = f"The model with the best {metric} {max_m} in {type} dataset is {data['models'][data[metric].idxmax()]}"
+    res = f"The model with the best {metric} {max_m} is {data['models'][data[metric].idxmax()]}"
     return res
 
 def best_f1_pr_auc(x,name,X_test,y_test):
@@ -166,7 +175,7 @@ def best_f1_pr_auc(x,name,X_test,y_test):
     plt.xlabel('Recall')
     plt.ylabel('Precision')
     plt.legend()
-    plt.savefig('figs/pr_auc.png')
+    plt.savefig(f'figs/{name}.png')
     return thresholds[ix], fscore[ix]
 
 def fit_model(model,X_train,y_train,X_test,y_test):
@@ -181,21 +190,16 @@ def fine_tune_model(model,X_train,y_train,X_test,y_test,param_grid,metric):
 
     model =  imbpipeline(steps = [['smote', SMOTE()],['xgb', model]])
 
-    # Choose the grid of hyperparameters we want to use for Grid Search to build our candidate models
-
     stratified_kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-    # Create a grid search object which will store the scores and hyperparameters of all candidate models 
     param_grid = RandomizedSearchCV(
         model, 
         param_grid,
         scoring=metric,
         cv=stratified_kfold, verbose=10)
 
-    # Fit the models specified by the parameter grid 
     tqdm(param_grid.fit(X_train, y_train))
 
-    # get the best hyperparameters from grid search object with its best_params_ attribute
     print('Best parameters found:\n', param_grid.best_params_)
 
     print(param_grid.best_score_)
