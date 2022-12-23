@@ -1,17 +1,16 @@
 
 import pandas as pd
+from numpy import argmax
+import matplotlib.pyplot as plt
+from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE
-from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from xgboost import XGBClassifier
 from sklearn.metrics import classification_report,confusion_matrix
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score, average_precision_score, precision_recall_curve
 from sklearn.ensemble import AdaBoostClassifier
-from numpy import argmax
-import matplotlib.pyplot as plt
 from imblearn.pipeline import Pipeline as imbpipeline
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import RandomizedSearchCV
@@ -124,7 +123,8 @@ def prepare_data(data):
     return X_train,X_test,y_train,y_test
 
 '''
-base_models() takes 4 arguments. It takes the balanced training features and labels and also the teseting features and labels. It trains 5 base models and returns their precision,recall and f1-score.
+base_models() takes 4 arguments. It takes the balanced training features and labels and also the teseting features and labels. It trains
+5 base models and returns their precision,recall and f1-score.
 
 '''
 
@@ -153,13 +153,18 @@ def base_models(X_train_sm,y_train_sm,X_test,y_test):
 
 
 '''
-best_metrics() takes 2 arguments: data and metric. It extracts the best model according to the metric passed. The data here is the dataframe of the results of 5
+best_metrics() takes 2 arguments: data and metric. It returns the best model according to the metric passed. The data here is the dataframe of the results of 5
 base models that are fitted. 
 '''   
 def best_metrics(data,metric):
     max_m = max(data[metric])
     res = f"The model with the best {metric} {max_m} is {data['models'][data[metric].idxmax()]}"
     return res
+
+'''
+best_f1_pr_auc() takes 4 arguments: x is the model, name is the model name, and the other two arguments is the test data and labels. This function returns the 
+best f1 score achieved for a model among all the threshold values of the classifiers. It also plots and saves the precision recall curve with the best threshold point.
+'''
 
 def best_f1_pr_auc(x,name,X_test,y_test):
     yhat = x.predict_proba(X_test)
@@ -178,13 +183,27 @@ def best_f1_pr_auc(x,name,X_test,y_test):
     plt.savefig(f'figs/{name}.png')
     return thresholds[ix], fscore[ix]
 
+
+'''
+fit_model() takes 5 arguments: one is model and the other four are the train and test data sets. It simply trains the model, creates classification report, 
+creates confusion matrix and returns the trained model and predictions. Throughout the script I have trained many models, hence this function helps remove the redundant
+code making the script efficient.
+'''
 def fit_model(model,X_train,y_train,X_test,y_test):
     model.fit(X_train,y_train)
     pred = model.predict(X_test)
+    print('Classification Report:')
     print(classification_report(y_test,pred))
+    print('Confusion Matrix:')
     print(confusion_matrix(y_test,pred))
     return model,pred
 
+
+'''
+fine_tune_model() takes 7 arguments: model, train-test sets, parameter grid to be tuned and the metric to optimise during the tuning. This functions performs performs
+hyperparameter tuning using RandomnisedSearchCV and uses imbpipeline to train the model using StratifiedKFold cross validation. This functions prints the best parameters,
+confusion matrix, classification report and returns just the trained model.
+'''
 def fine_tune_model(model,X_train,y_train,X_test,y_test,param_grid,metric):
 
 
@@ -204,7 +223,9 @@ def fine_tune_model(model,X_train,y_train,X_test,y_test,param_grid,metric):
 
     print(param_grid.best_score_)
     rfc_grid_predict = param_grid.predict(X_test)
+    print('Confusion Matrix:')
     print(confusion_matrix(y_test,rfc_grid_predict))
+    print('Classification Report:')
     print(classification_report(y_test,rfc_grid_predict))
 
     return param_grid
